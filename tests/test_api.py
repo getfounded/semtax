@@ -112,7 +112,7 @@ def test_class_confidence_threshold_applied(minimal_store, monkeypatch, tmp_path
     c = SemTax(
         taxonomy="unspsc",
         embedding_model=fake_embed,
-        class_confidence_threshold=1.0,   # nothing clears this
+        class_confidence_threshold=1.1,   # > 1.0, impossible for cosine to reach
         commodity_confidence_threshold=0.0,
         telemetry=False,
         verbose=False,
