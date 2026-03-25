@@ -12,6 +12,10 @@ __pycache__/
 # Testing
 .pytest_cache/
 
+# Taxonomy data (large files — ship via PyPI wheel, not git)
+taxonomy_data_sets/
+src/semtax/data/
+
 # Build / packaging
 dist/
 *.egg-info/
