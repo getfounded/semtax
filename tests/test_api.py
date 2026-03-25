@@ -16,20 +16,17 @@ from conftest import fake_embed
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def classifier(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("cache")
+@pytest.fixture
+def classifier(minimal_store, monkeypatch, tmp_path):
     import semtax._embeddings as emb_mod
-    original = emb_mod.CACHE_DIR
-    emb_mod.CACHE_DIR = tmp
-    c = SemTax(
+    monkeypatch.setattr(emb_mod, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr("semtax._api.load_unspsc", lambda: minimal_store)
+    return SemTax(
         taxonomy="unspsc",
         embedding_model=fake_embed,
         telemetry=False,
         verbose=False,
     )
-    yield c
-    emb_mod.CACHE_DIR = original
 
 
 # ---------------------------------------------------------------------------
@@ -88,21 +85,18 @@ def test_empty_string_in_list_raises_value_error(classifier):
 # ---------------------------------------------------------------------------
 
 
-def test_custom_callable_model_accepted(tmp_path):
+def test_custom_callable_model_accepted(minimal_store, monkeypatch, tmp_path):
     import semtax._embeddings as emb_mod
-    original = emb_mod.CACHE_DIR
-    emb_mod.CACHE_DIR = tmp_path
-    try:
-        c = SemTax(
-            taxonomy="unspsc",
-            embedding_model=fake_embed,
-            telemetry=False,
-            verbose=False,
-        )
-        result = c.classify("office supplies")
-        assert isinstance(result, ClassificationResult)
-    finally:
-        emb_mod.CACHE_DIR = original
+    monkeypatch.setattr(emb_mod, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr("semtax._api.load_unspsc", lambda: minimal_store)
+    c = SemTax(
+        taxonomy="unspsc",
+        embedding_model=fake_embed,
+        telemetry=False,
+        verbose=False,
+    )
+    result = c.classify("office supplies")
+    assert isinstance(result, ClassificationResult)
 
 
 # ---------------------------------------------------------------------------
@@ -110,24 +104,21 @@ def test_custom_callable_model_accepted(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_class_confidence_threshold_applied(tmp_path):
+def test_class_confidence_threshold_applied(minimal_store, monkeypatch, tmp_path):
     """Setting class_confidence_threshold=1.0 should stop at class level."""
     import semtax._embeddings as emb_mod
-    original = emb_mod.CACHE_DIR
-    emb_mod.CACHE_DIR = tmp_path
-    try:
-        c = SemTax(
-            taxonomy="unspsc",
-            embedding_model=fake_embed,
-            class_confidence_threshold=1.0,   # nothing clears this
-            commodity_confidence_threshold=0.0,
-            telemetry=False,
-            verbose=False,
-        )
-        result = c.classify("toner cartridge")
-        assert result.commodity.populated is False
-    finally:
-        emb_mod.CACHE_DIR = original
+    monkeypatch.setattr(emb_mod, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr("semtax._api.load_unspsc", lambda: minimal_store)
+    c = SemTax(
+        taxonomy="unspsc",
+        embedding_model=fake_embed,
+        class_confidence_threshold=1.0,   # nothing clears this
+        commodity_confidence_threshold=0.0,
+        telemetry=False,
+        verbose=False,
+    )
+    result = c.classify("toner cartridge")
+    assert result.commodity.populated is False
 
 
 def test_commodity_threshold_zero_populates_commodity(classifier):
@@ -144,26 +135,21 @@ def test_commodity_threshold_zero_populates_commodity(classifier):
 # ---------------------------------------------------------------------------
 
 
-def test_telemetry_false_suppresses_posthog(tmp_path, mocker):
+def test_telemetry_false_suppresses_posthog(minimal_store, monkeypatch, tmp_path, mocker):
     import semtax._embeddings as emb_mod
-    original = emb_mod.CACHE_DIR
-    emb_mod.CACHE_DIR = tmp_path
+    monkeypatch.setattr(emb_mod, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr("semtax._api.load_unspsc", lambda: minimal_store)
 
     mock_capture = mocker.patch("semtax._telemetry.capture")
-    try:
-        c = SemTax(
-            taxonomy="unspsc",
-            embedding_model=fake_embed,
-            telemetry=False,
-            verbose=False,
-        )
-        c.classify("test item")
-        # capture IS called but opt_out=True prevents PostHog firing
-        # Verify capture was called with opt_out=True
-        for call in mock_capture.call_args_list:
-            assert call.kwargs.get("opt_out", False) is True or call.args[-1] is True
-    finally:
-        emb_mod.CACHE_DIR = original
+    c = SemTax(
+        taxonomy="unspsc",
+        embedding_model=fake_embed,
+        telemetry=False,
+        verbose=False,
+    )
+    c.classify("test item")
+    for call in mock_capture.call_args_list:
+        assert call.kwargs.get("opt_out", False) is True or call.args[-1] is True
 
 
 def test_opt_out_env_var_suppresses_posthog(tmp_path, monkeypatch, mocker):
