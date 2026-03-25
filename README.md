@@ -2,9 +2,16 @@
 
 **Zero-shot hierarchical taxonomy classification using semantic embeddings.**
 
+[![PyPI version](https://img.shields.io/pypi/v/semtax)](https://pypi.org/project/semtax/)
+[![Downloads](https://img.shields.io/pepy/dt/semtax)](https://pepy.tech/project/semtax)
+[![License](https://img.shields.io/github/license/getfounded/semtax)](LICENSE)
+[![Python versions](https://img.shields.io/pypi/pyversions/semtax)](https://pypi.org/project/semtax/)
+
 ```bash
 pip install semtax
 ```
+
+Requires Python 3.9+. Key dependencies: `sentence-transformers`, `numpy`, `tqdm`.
 
 No training data. No API keys. No labeled examples. Point it at text, get back a taxonomy match.
 
@@ -20,6 +27,12 @@ The core idea: taxonomy nodes already contain rich semantic information in their
 
 ---
 
+## Who is this for?
+
+Procurement and finance analysts who need to categorise spend data against UNSPSC without manual tagging. Developers building spend analytics pipelines, vendor classification tools, or procurement automation systems. If you have a list of item descriptions and need structured taxonomy codes attached to them — this is the tool.
+
+---
+
 ## Quickstart
 
 ```python
@@ -30,7 +43,7 @@ classifier = SemTax()
 result = classifier.classify("toner cartridges for laser printer")
 
 print(result.segment.label)      # Office Equipment and Accessories and Supplies
-print(result.class_.label)       # Toner cartridges and supplies
+print(result.class_.label)       # Toner cartridges and supplies  (class_ — class is a Python reserved word)
 print(result.class_.confidence)  # 0.8341
 print(result.commodity.label)    # Laser toner cartridges
 print(result.match_level)        # commodity
@@ -160,7 +173,7 @@ from semtax import (
     AmbiguityConfig,      # fine-grained threshold configuration
     ClassificationResult, # return type from classify() — useful for type hints
     LevelResult,          # segment / family / class / commodity result type
-    FLAG_LOW_CONFIDENCE,        # filter results by flag
+    FLAG_LOW_CONFIDENCE,        # filter results by flag — these are plain strings, use `in result.flags`
     FLAG_MARGIN_TOO_SMALL,
     FLAG_MULTI_SEGMENT_SPREAD,
     FLAG_COMPOSITE_HEURISTIC,
