@@ -17,7 +17,7 @@ from semtax._result import (
     FLAG_LOW_CONFIDENCE,
     ClassificationResult,
 )
-from tests.conftest import fake_embed
+from conftest import fake_embed
 
 
 # ---------------------------------------------------------------------------

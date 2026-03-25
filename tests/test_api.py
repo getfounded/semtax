@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from semtax import SemTax, ClassificationResult
-from tests.conftest import fake_embed
+from conftest import fake_embed
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ from semtax._embeddings import (
     _model_hash,
     cosine_similarity_matrix,
 )
-from tests.conftest import fake_embed
+from conftest import fake_embed
 
 
 # ---------------------------------------------------------------------------
