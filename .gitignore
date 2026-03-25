@@ -1,0 +1,18 @@
+.claude/
+CLAUDE.md
+claude.md
+
+semtex_plan.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Testing
+.pytest_cache/
+
+# Build / packaging
+dist/
+*.egg-info/
+.env
