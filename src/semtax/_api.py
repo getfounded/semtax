@@ -11,6 +11,8 @@ Usage:
 
 from __future__ import annotations
 
+import csv
+import json
 import sys
 from typing import Callable, Optional, Union
 
@@ -23,6 +25,19 @@ from ._taxonomy import TaxonomyStore, load_unspsc
 from ._telemetry import capture
 
 ModelSpec = Union[str, Callable[[list[str]], list[list[float]]]]
+
+_COLUMN_CANDIDATES: list[str] = [
+    "description", "item_description", "desc", "item", "name", "text"
+]
+
+_FLAT_DICT_FIELDS: list[str] = [
+    "description",
+    "segment_code", "segment_label", "segment_confidence",
+    "family_code", "family_label", "family_confidence",
+    "class_code", "class_label", "class_confidence",
+    "commodity_code", "commodity_label", "commodity_confidence",
+    "commodity_populated", "match_level", "flags",
+]
 
 
 class SemTax:
@@ -157,6 +172,10 @@ class SemTax:
             opt_out=not telemetry,
         )
 
+    # ------------------------------------------------------------------
+    # Classification
+    # ------------------------------------------------------------------
+
     def classify(
         self,
         descriptions: Union[str, list[str]],
@@ -207,6 +226,10 @@ class SemTax:
 
         return results[0] if single else results
 
+    # ------------------------------------------------------------------
+    # Import methods
+    # ------------------------------------------------------------------
+
     def classify_csv(
         self,
         path: str,
@@ -226,32 +249,19 @@ class SemTax:
                 If omitted, semtax looks for a column named one of:
                 ``description``, ``item_description``, ``desc``, ``item``,
                 ``name``, ``text`` (case-insensitive, first match wins).
-                A ``ValueError`` is raised if none are found — pass ``column``
-                explicitly in that case.
+                Pass ``column`` explicitly if your column has a different name.
 
             show_progress:
                 Show a tqdm progress bar while classifying. Default ``True``
                 since CSV files tend to be large.
 
         Returns:
-            A pandas DataFrame containing all original columns plus:
-            ``segment_code``, ``segment_label``, ``segment_confidence``,
-            ``family_code``, ``family_label``, ``family_confidence``,
-            ``class_code``, ``class_label``, ``class_confidence``,
-            ``commodity_code``, ``commodity_label``, ``commodity_confidence``,
-            ``commodity_populated``, ``match_level``, ``flags``.
+            A pandas DataFrame with all original columns plus classification
+            columns appended.
 
         Raises:
             ImportError:  If pandas is not installed.
             ValueError:   If the description column cannot be found.
-
-        Example::
-
-            results = classifier.classify_csv("spend_data.csv")
-            results.to_csv("spend_data_classified.csv", index=False)
-
-            # Explicit column name
-            results = classifier.classify_csv("spend_data.csv", column="line_item")
         """
         try:
             import pandas as pd
@@ -262,32 +272,278 @@ class SemTax:
             )
 
         df = pd.read_csv(path)
+        col = self._detect_column(list(df.columns), column, path)
+        results = self.classify(df[col].tolist(), show_progress=show_progress)
+        classified = pd.DataFrame([r.to_flat_dict() for r in results])
+        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
 
-        # Resolve column
-        if column is None:
-            _CANDIDATES = ["description", "item_description", "desc", "item", "name", "text"]
-            col_lower = {c.lower(): c for c in df.columns}
-            for candidate in _CANDIDATES:
-                if candidate in col_lower:
-                    column = col_lower[candidate]
-                    break
-            if column is None:
-                raise ValueError(
-                    f"Could not find a description column in {path}. "
-                    f"Columns found: {list(df.columns)}. "
-                    "Pass column='your_column_name' explicitly."
-                )
-        elif column not in df.columns:
-            raise ValueError(
-                f"Column '{column}' not found in {path}. "
-                f"Columns found: {list(df.columns)}"
+    def classify_json(
+        self,
+        path: str,
+        column: Optional[str] = None,
+        show_progress: bool = True,
+    ) -> "pd.DataFrame":
+        """
+        Classify descriptions from a JSON file and return a DataFrame with
+        the original data plus classification results appended.
+
+        The JSON file must contain a top-level list. Two formats are accepted:
+
+        - **List of strings** — each string is treated as a description directly.
+          The ``column`` parameter is ignored in this case.
+        - **List of dicts** — semtax auto-detects the description column using
+          the same logic as ``classify_csv`` (or use ``column`` explicitly).
+
+        Args:
+            path:
+                Path to the JSON file.
+
+            column:
+                Name of the key containing descriptions (list-of-dicts only).
+                Auto-detected if omitted.
+
+            show_progress:
+                Show a tqdm progress bar while classifying.
+
+        Returns:
+            A pandas DataFrame with original data plus classification columns.
+
+        Raises:
+            ImportError:  If pandas is not installed.
+            ValueError:   If the file does not contain a top-level list, or if
+                          the description column cannot be found.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for classify_json. "
+                "Install it with: pip install pandas"
             )
 
-        results = self.classify(df[column].tolist(), show_progress=show_progress)
-        classified = pd.DataFrame([r.to_flat_dict() for r in results])
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-        # Drop the description column from classified (already in df) and merge
+        if not isinstance(data, list):
+            raise ValueError(
+                f"JSON file must contain a top-level list, "
+                f"but got {type(data).__name__}. "
+                "Expected a list of strings or a list of dicts."
+            )
+
+        if len(data) == 0:
+            return pd.DataFrame(columns=_FLAT_DICT_FIELDS)
+
+        if isinstance(data[0], str):
+            df = pd.DataFrame({"description": data})
+            col = "description"
+        elif isinstance(data[0], dict):
+            df = pd.DataFrame(data)
+            col = self._detect_column(list(df.columns), column, path)
+        else:
+            raise ValueError(
+                f"JSON list elements must be strings or dicts, "
+                f"but got {type(data[0]).__name__}."
+            )
+
+        results = self.classify(df[col].tolist(), show_progress=show_progress)
+        classified = pd.DataFrame([r.to_flat_dict() for r in results])
         return pd.concat([df, classified.drop(columns=["description"])], axis=1)
+
+    def classify_excel(
+        self,
+        path: str,
+        column: Optional[str] = None,
+        sheet_name: Union[str, int] = 0,
+        show_progress: bool = True,
+    ) -> "pd.DataFrame":
+        """
+        Classify descriptions from an Excel file (.xlsx) and return a DataFrame
+        with the original columns plus classification results appended.
+
+        Args:
+            path:
+                Path to the .xlsx file.
+
+            column:
+                Name of the column containing descriptions. Auto-detected if
+                omitted (same logic as ``classify_csv``).
+
+            sheet_name:
+                Sheet to read. Accepts a sheet name (str) or zero-based index
+                (int). Default ``0`` reads the first sheet.
+
+            show_progress:
+                Show a tqdm progress bar while classifying.
+
+        Returns:
+            A pandas DataFrame with original columns plus classification columns.
+
+        Raises:
+            ImportError:  If pandas or openpyxl is not installed.
+            ValueError:   If the description column cannot be found.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for classify_excel. "
+                "Install it with: pip install pandas openpyxl"
+            )
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "openpyxl is required for classify_excel. "
+                "Install it with: pip install openpyxl"
+            )
+
+        df = pd.read_excel(path, sheet_name=sheet_name)
+        col = self._detect_column(list(df.columns), column, path)
+        results = self.classify(df[col].tolist(), show_progress=show_progress)
+        classified = pd.DataFrame([r.to_flat_dict() for r in results])
+        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
+
+    # ------------------------------------------------------------------
+    # Export methods
+    # ------------------------------------------------------------------
+
+    def to_csv(
+        self,
+        results: list[ClassificationResult],
+        path: str,
+    ) -> None:
+        """
+        Write classification results to a CSV file.
+
+        Does not require pandas — uses the Python standard library ``csv``
+        module.
+
+        Args:
+            results: List of ``ClassificationResult`` objects from ``classify()``.
+            path:    Destination file path.
+        """
+        rows = [r.to_flat_dict() for r in results]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=_FLAT_DICT_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def to_dataframe(
+        self,
+        results: list[ClassificationResult],
+    ) -> "pd.DataFrame":
+        """
+        Convert classification results to a pandas DataFrame.
+
+        Args:
+            results: List of ``ClassificationResult`` objects from ``classify()``.
+
+        Returns:
+            A flat pandas DataFrame with one row per result.
+
+        Raises:
+            ImportError: If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for to_dataframe. "
+                "Install it with: pip install pandas"
+            )
+        if not results:
+            return pd.DataFrame(columns=_FLAT_DICT_FIELDS)
+        return pd.DataFrame([r.to_flat_dict() for r in results])
+
+    def to_json(
+        self,
+        results: list[ClassificationResult],
+        path: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Export classification results as JSON (list of flat dicts).
+
+        Args:
+            results:
+                List of ``ClassificationResult`` objects from ``classify()``.
+            path:
+                If given, writes to this file path and returns ``None``.
+                If omitted, returns the JSON as a string.
+
+        Returns:
+            JSON string if ``path`` is ``None``, otherwise ``None``.
+        """
+        data = [r.to_flat_dict() for r in results]
+        if path is None:
+            return json.dumps(data, indent=2, ensure_ascii=False)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return None
+
+    def to_excel(
+        self,
+        results: list[ClassificationResult],
+        path: str,
+    ) -> None:
+        """
+        Write classification results to an Excel file (.xlsx).
+
+        Args:
+            results: List of ``ClassificationResult`` objects from ``classify()``.
+            path:    Destination file path (should end in ``.xlsx``).
+
+        Raises:
+            ImportError: If pandas or openpyxl is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for to_excel. "
+                "Install it with: pip install pandas openpyxl"
+            )
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "openpyxl is required for to_excel. "
+                "Install it with: pip install openpyxl"
+            )
+        df = (
+            pd.DataFrame([r.to_flat_dict() for r in results])
+            if results
+            else pd.DataFrame(columns=_FLAT_DICT_FIELDS)
+        )
+        df.to_excel(path, index=False)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_column(
+        columns: list[str],
+        explicit: Optional[str],
+        source_label: str,
+    ) -> str:
+        """Resolve the description column name from a list of column names."""
+        if explicit is not None:
+            if explicit not in columns:
+                raise ValueError(
+                    f"Column '{explicit}' not found in {source_label}. "
+                    f"Columns found: {columns}"
+                )
+            return explicit
+        col_lower = {c.lower(): c for c in columns}
+        for candidate in _COLUMN_CANDIDATES:
+            if candidate in col_lower:
+                return col_lower[candidate]
+        raise ValueError(
+            f"Could not find a description column in {source_label}. "
+            f"Columns found: {columns}. "
+            "Pass column='your_column_name' explicitly."
+        )
 
     def __repr__(self) -> str:
         return (

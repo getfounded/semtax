@@ -65,34 +65,37 @@ for r in results:
     print(f"{r.description:<40} → {r.class_.label} ({r.class_.confidence:.2f})")
 ```
 
-### Classify from a CSV file
+### Import from a file
+
+All three import methods auto-detect the description column, or accept `column=` explicitly. They return a DataFrame with your original data plus classification columns appended.
 
 ```python
-from semtax import SemTax
-
-classifier = SemTax()
-
-# Auto-detects a column named "description", "item", "name", "text", etc.
+# CSV
 output = classifier.classify_csv("spend_data.csv")
-output.to_csv("spend_data_classified.csv", index=False)
-```
 
-If your column has a non-standard name, pass it explicitly:
+# Excel
+output = classifier.classify_excel("spend_data.xlsx")
 
-```python
+# JSON — accepts a list of strings or a list of dicts
+output = classifier.classify_json("spend_data.json")
+
+# Non-standard column name
 output = classifier.classify_csv("spend_data.csv", column="line_item")
+output = classifier.classify_excel("spend_data.xlsx", column="line_item", sheet_name="Q1")
 ```
 
-The output is a DataFrame with all your original columns plus `segment_code`, `segment_label`, `segment_confidence`, `family_code`, `family_label`, `class_code`, `class_label`, `class_confidence`, `commodity_code`, `commodity_label`, `commodity_populated`, `match_level`, and `flags`.
+The output DataFrame includes all your original columns plus: `segment_code`, `segment_label`, `segment_confidence`, `family_code`, `family_label`, `family_confidence`, `class_code`, `class_label`, `class_confidence`, `commodity_code`, `commodity_label`, `commodity_confidence`, `commodity_populated`, `match_level`, `flags`.
 
-### Export a list to CSV
+### Export results
 
 ```python
-import pandas as pd
-
 results = classifier.classify(descriptions)
-df = pd.DataFrame([r.to_flat_dict() for r in results])
-df.to_csv("classified.csv", index=False)
+
+classifier.to_csv(results, "output.csv")           # no pandas required
+classifier.to_excel(results, "output.xlsx")
+classifier.to_json(results, "output.json")         # writes file
+json_str = classifier.to_json(results)             # returns string if no path
+df = classifier.to_dataframe(results)              # pandas DataFrame
 ```
 
 ---
