@@ -43,8 +43,6 @@ packages = ["src/semtax"]
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/semtax/data" = "semtax/data"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
