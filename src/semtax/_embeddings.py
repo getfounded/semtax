@@ -108,8 +108,27 @@ class EmbeddingEngine:
             # Callable IS the model — no loading needed
             self._model = self._model_spec
         else:
+            import logging
+            import os
+            import warnings
+            # Suppress noisy first-run warnings from huggingface_hub and
+            # sentence-transformers (symlinks on Windows, unauthenticated HF
+            # token, unexpected weight keys). These are harmless and confusing
+            # to library users who don't need to know about them.
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+            _st_logger = logging.getLogger("sentence_transformers")
+            _hf_logger = logging.getLogger("huggingface_hub")
+            _prev_st = _st_logger.level
+            _prev_hf = _hf_logger.level
+            _st_logger.setLevel(logging.ERROR)
+            _hf_logger.setLevel(logging.ERROR)
             from sentence_transformers import SentenceTransformer  # type: ignore[import]
-            self._model = SentenceTransformer(self._model_spec)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                self._model = SentenceTransformer(self._model_spec)
+            _st_logger.setLevel(_prev_st)
+            _hf_logger.setLevel(_prev_hf)
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         if callable(self._model_spec) and not isinstance(self._model_spec, str):
