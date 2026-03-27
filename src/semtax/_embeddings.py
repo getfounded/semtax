@@ -19,9 +19,16 @@ Known V1 limitation:
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import os
+from contextlib import redirect_stderr
 from pathlib import Path
 from typing import Callable, Union
+
+# Must be set before huggingface_hub is imported anywhere — suppresses the
+# Windows symlinks warning that fires on every model load from cache.
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 import numpy as np
 from tqdm import tqdm
@@ -109,13 +116,10 @@ class EmbeddingEngine:
             self._model = self._model_spec
         else:
             import logging
-            import os
             import warnings
-            # Suppress noisy first-run warnings from huggingface_hub and
+            # Suppress noisy first-run output from huggingface_hub and
             # sentence-transformers (symlinks on Windows, unauthenticated HF
-            # token, unexpected weight keys). These are harmless and confusing
-            # to library users who don't need to know about them.
-            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+            # token, LOAD REPORT, unexpected weight keys). All harmless.
             _st_logger = logging.getLogger("sentence_transformers")
             _hf_logger = logging.getLogger("huggingface_hub")
             _prev_st = _st_logger.level
@@ -123,7 +127,7 @@ class EmbeddingEngine:
             _st_logger.setLevel(logging.ERROR)
             _hf_logger.setLevel(logging.ERROR)
             from sentence_transformers import SentenceTransformer  # type: ignore[import]
-            with warnings.catch_warnings():
+            with warnings.catch_warnings(), redirect_stderr(io.StringIO()):
                 warnings.filterwarnings("ignore", category=UserWarning)
                 warnings.filterwarnings("ignore", category=FutureWarning)
                 self._model = SentenceTransformer(self._model_spec)

@@ -273,9 +273,7 @@ class SemTax:
 
         df = pd.read_csv(path)
         col = self._detect_column(list(df.columns), column, path)
-        results = self.classify(df[col].tolist(), show_progress=show_progress)
-        classified = pd.DataFrame([r.to_flat_dict() for r in results])
-        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
+        return self._classify_column(df, col, show_progress)
 
     def classify_json(
         self,
@@ -346,9 +344,7 @@ class SemTax:
                 f"but got {type(data[0]).__name__}."
             )
 
-        results = self.classify(df[col].tolist(), show_progress=show_progress)
-        classified = pd.DataFrame([r.to_flat_dict() for r in results])
-        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
+        return self._classify_column(df, col, show_progress)
 
     def classify_excel(
         self,
@@ -400,9 +396,7 @@ class SemTax:
 
         df = pd.read_excel(path, sheet_name=sheet_name)
         col = self._detect_column(list(df.columns), column, path)
-        results = self.classify(df[col].tolist(), show_progress=show_progress)
-        classified = pd.DataFrame([r.to_flat_dict() for r in results])
-        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
+        return self._classify_column(df, col, show_progress)
 
     # ------------------------------------------------------------------
     # Export methods
@@ -520,6 +514,31 @@ class SemTax:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _classify_column(
+        self,
+        df: "pd.DataFrame",
+        col: str,
+        show_progress: bool,
+    ) -> "pd.DataFrame":
+        """Classify a column in a DataFrame, skipping null/empty rows."""
+        import pandas as pd
+
+        mask = df[col].notna() & df[col].astype(str).str.strip().ne("")
+        if not mask.any():
+            # No classifiable rows — return original df with empty result cols
+            for field in _FLAT_DICT_FIELDS:
+                if field != col:
+                    df[field] = pd.NA
+            return df
+
+        texts = df.loc[mask, col].astype(str).tolist()
+        results = self.classify(texts, show_progress=show_progress)
+        classified = pd.DataFrame(
+            [r.to_flat_dict() for r in results],
+            index=df.index[mask],
+        )
+        return pd.concat([df, classified.drop(columns=["description"])], axis=1)
 
     @staticmethod
     def _detect_column(
