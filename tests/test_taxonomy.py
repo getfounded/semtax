@@ -106,7 +106,7 @@ def test_embed_text_commodity_whitespace_only_synonym_ignored():
 def store() -> TaxonomyStore:
     from pathlib import Path
     csv_path = Path(__file__).parent.parent / "src" / "semtax" / "data" / "unspsc-english-v260801.1.csv"
-    if not csv_path.exists():
+    if not csv_path.exists() or csv_path.stat().st_size < 1_000_000:
         pytest.skip("UNSPSC CSV not present — skipping integration tests")
     return load_unspsc()
 
