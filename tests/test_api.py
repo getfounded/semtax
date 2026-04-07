@@ -181,3 +181,177 @@ def test_repr_contains_thresholds(classifier):
     r = repr(classifier)
     assert "class_threshold" in r
     assert "commodity_threshold" in r
+
+
+# ---------------------------------------------------------------------------
+# Export methods: to_csv, to_dataframe, to_json, to_excel
+# ---------------------------------------------------------------------------
+
+
+def test_to_csv_writes_file(classifier, tmp_path):
+    results = classifier.classify(["toner cartridge", "office chair"])
+    out = tmp_path / "out.csv"
+    classifier.to_csv(results, str(out))
+    assert out.exists()
+    text = out.read_text(encoding="utf-8")
+    assert "segment_code" in text
+    assert "commodity_label" in text
+    lines = [l for l in text.splitlines() if l.strip()]
+    assert len(lines) == 3  # header + 2 rows
+
+
+def test_to_csv_single_result(classifier, tmp_path):
+    result = classifier.classify("toner cartridge")
+    out = tmp_path / "single.csv"
+    classifier.to_csv([result], str(out))
+    lines = [l for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 2  # header + 1 row
+
+
+def test_to_dataframe_returns_dataframe(classifier):
+    pytest.importorskip("pandas")
+    results = classifier.classify(["toner cartridge", "office chair"])
+    df = classifier.to_dataframe(results)
+    import pandas as pd
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 2
+    assert "segment_code" in df.columns
+    assert "commodity_label" in df.columns
+
+
+def test_to_dataframe_empty_list(classifier):
+    pytest.importorskip("pandas")
+    import pandas as pd
+    df = classifier.to_dataframe([])
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 0
+    assert "segment_code" in df.columns
+
+
+def test_to_json_returns_string(classifier):
+    results = classifier.classify(["toner cartridge"])
+    import json
+    out = classifier.to_json(results)
+    assert isinstance(out, str)
+    data = json.loads(out)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert "segment_code" in data[0]
+
+
+def test_to_json_writes_file(classifier, tmp_path):
+    results = classifier.classify(["toner cartridge"])
+    out = tmp_path / "out.json"
+    ret = classifier.to_json(results, str(out))
+    assert ret is None
+    assert out.exists()
+    import json
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert len(data) == 1
+
+
+def test_to_json_empty_list(classifier):
+    out = classifier.to_json([])
+    import json
+    assert json.loads(out) == []
+
+
+def test_to_excel_writes_file(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
+    results = classifier.classify(["toner cartridge", "office chair"])
+    out = tmp_path / "out.xlsx"
+    classifier.to_excel(results, str(out))
+    assert out.exists()
+    import pandas as pd
+    df = pd.read_excel(str(out))
+    assert len(df) == 2
+    assert "segment_code" in df.columns
+
+
+def test_to_excel_empty_list(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
+    out = tmp_path / "empty.xlsx"
+    classifier.to_excel([], str(out))
+    import pandas as pd
+    df = pd.read_excel(str(out))
+    assert len(df) == 0
+    assert "segment_code" in df.columns
+
+
+# ---------------------------------------------------------------------------
+# Import methods: classify_json, classify_excel
+# ---------------------------------------------------------------------------
+
+
+def test_classify_json_list_of_strings(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    import json
+    data = ["toner cartridge", "office chair"]
+    p = tmp_path / "input.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    df = classifier.classify_json(str(p))
+    import pandas as pd
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 2
+    assert "segment_code" in df.columns
+
+
+def test_classify_json_list_of_dicts(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    import json
+    data = [{"description": "toner cartridge"}, {"description": "office chair"}]
+    p = tmp_path / "input.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    df = classifier.classify_json(str(p))
+    assert len(df) == 2
+    assert "segment_code" in df.columns
+
+
+def test_classify_json_non_list_raises(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    import json
+    p = tmp_path / "bad.json"
+    p.write_text(json.dumps({"description": "toner"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="top-level list"):
+        classifier.classify_json(str(p))
+
+
+def test_classify_json_empty_list(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    import json
+    p = tmp_path / "empty.json"
+    p.write_text(json.dumps([]), encoding="utf-8")
+    df = classifier.classify_json(str(p))
+    assert len(df) == 0
+
+
+def test_classify_excel_round_trip(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
+    import pandas as pd
+    df_in = pd.DataFrame({"description": ["toner cartridge", "office chair"]})
+    p = tmp_path / "input.xlsx"
+    df_in.to_excel(str(p), index=False)
+    df_out = classifier.classify_excel(str(p))
+    assert len(df_out) == 2
+    assert "segment_code" in df_out.columns
+
+
+# ---------------------------------------------------------------------------
+# NaN handling in _classify_column
+# ---------------------------------------------------------------------------
+
+
+def test_classify_csv_skips_nan_rows(classifier, tmp_path):
+    pytest.importorskip("pandas")
+    import pandas as pd
+    df = pd.DataFrame({"description": ["toner cartridge", None, "office chair", ""]})
+    p = tmp_path / "nan_test.csv"
+    df.to_csv(str(p), index=False)
+    result_df = classifier.classify_csv(str(p))
+    # Only 2 rows are classifiable; check we didn't crash and got results
+    assert "segment_code" in result_df.columns
+    classified = result_df["segment_code"].notna()
+    assert classified.sum() == 2

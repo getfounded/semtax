@@ -117,6 +117,15 @@ class EmbeddingEngine:
         else:
             import logging
             import warnings
+            if not _model_is_cached(self._model_spec):
+                import random
+                suggestion = random.choice(_WAIT_SUGGESTIONS)
+                print(
+                    f"Downloading embedding model '{self._model_spec}' (~90 MB).\n"
+                    f"This is a one-time download — future runs load from cache in ~1 second.\n"
+                    f"While you wait: {suggestion}",
+                    flush=True,
+                )
             # Suppress noisy first-run output from huggingface_hub and
             # sentence-transformers (symlinks on Windows, unauthenticated HF
             # token, LOAD REPORT, unexpected weight keys). All harmless.
@@ -260,6 +269,17 @@ def cosine_similarity_matrix(
 # ---------------------------------------------------------------------------
 
 
+_WAIT_SUGGESTIONS = [
+    "go make a coffee ☕",
+    "do a load of laundry 🧺",
+    "go for a short walk 🚶",
+    "make a sandwich 🥪",
+    "water a plant 🪴",
+    "stretch your legs 🦵",
+    "stare out the window thoughtfully 🌥️",
+]
+
+
 def _resolve_model_id(model_spec: ModelSpec) -> str:
     """Return a stable, printable string identifier for a model spec."""
     if isinstance(model_spec, str):
@@ -277,3 +297,13 @@ def _model_hash(model_id: str) -> str:
 
 def _chunk(lst: list, size: int) -> list[list]:
     return [lst[i : i + size] for i in range(0, len(lst), size)]
+
+
+def _model_is_cached(model_name: str) -> bool:
+    """Return True if the model is already present in the HuggingFace local cache."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        result = try_to_load_from_cache(model_name, filename="config.json")
+        return result is not None and result != "no_cached_files"
+    except Exception:
+        return False
